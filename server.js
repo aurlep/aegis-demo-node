@@ -69,6 +69,42 @@ app.get("/api/items", (req, res) => {
   res.json({ items: ITEMS });
 });
 
+/* ---------------------------------------------------------------------------
+ * Token API. The form login above exercises ZAP's `browser` and `form` auth;
+ * this exercises `json` auth with `headers` session management, which had no
+ * target anywhere in the demo estate and so was never actually run.
+ *
+ * Deliberately a bearer token in a JSON body, under field names that are NOT
+ * `username`/`password` -- guessing those was the bug this target exists to
+ * catch.
+ * ------------------------------------------------------------------------- */
+const TOKENS = new Map();
+
+app.post("/api/auth/login", (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || USERS[email] !== password) {
+    return res.status(401).json({ error: "invalid credentials" });
+  }
+  const token = require("crypto").randomBytes(24).toString("hex");
+  TOKENS.set(token, email);
+  res.json({ access_token: token, token_type: "Bearer", email });
+});
+
+const requireBearer = (req, res, next) => {
+  const header = req.get("authorization") || "";
+  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+  const email = TOKENS.get(token);
+  if (!email) return res.status(401).json({ error: "unauthorized" });
+  req.tokenEmail = email;
+  next();
+};
+
+app.get("/api/v1/profile", requireBearer, (req, res) => {
+  res.json({ email: req.tokenEmail, roles: ["user"] });
+});
+
+app.get("/api/v1/items", requireBearer, (_req, res) => res.json({ items: ITEMS }));
+
 app.get("/healthz", (_req, res) => res.json({ status: "ok" }));
 
 app.listen(PORT, () => console.log(`listening on ${PORT}`));
